@@ -22,10 +22,16 @@ import java.util.Set;
 public class SpecificationProcess extends AbstractProcessor {
 
     @Override
+    public synchronized void init(ProcessingEnvironment processingEnv) {
+        super.init(processingEnv);
+    }
+
+    @Override
     public boolean process(Set<? extends TypeElement> annotations, RoundEnvironment roundEnv) {
         System.out.println("\n***********process*********");
         System.out.println("\n***********process*********");
         System.out.println("\n***********process*********");
+
 //        for (TypeElement annotation : annotations) {
 //            List<? extends TypeParameterElement> typeParameters = annotation.getTypeParameters();
 //            for (TypeParameterElement typeParameter : typeParameters) {
@@ -44,7 +50,7 @@ public class SpecificationProcess extends AbstractProcessor {
 //                }
 //            }
 //        }
-        return true;
+        return false;
     }
 
     private void generateSpecificationClass(TypeElement entityClass, ProcessingEnvironment env) {

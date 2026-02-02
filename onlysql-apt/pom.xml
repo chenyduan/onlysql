@@ -16,6 +16,10 @@
             <groupId>io.github.classgraph</groupId>
             <artifactId>classgraph</artifactId>
         </dependency>
+        <dependency>
+            <groupId>com.google.auto.service</groupId>
+            <artifactId>auto-service-annotations</artifactId>
+        </dependency>
         <!-- https://mvnrepository.com/artifact/com.google.auto.service/auto-service -->
         <dependency>
             <groupId>com.google.auto.service</groupId>
@@ -30,5 +34,29 @@
             <artifactId>jakarta.persistence-api</artifactId>
         </dependency>
     </dependencies>
+    <build>
+        <plugins>
+            <plugin>
+                <groupId>org.apache.maven.plugins</groupId>
+                <artifactId>maven-compiler-plugin</artifactId>
+                <configuration>
+                    <source>25</source>
+                    <target>25</target>
+                    <encoding>UTF-8</encoding>
+                    <!-- 强制重新编译 -->
+                    <!-- <forceJavacCompilerUse>true</forceJavacCompilerUse> -->
+                    <!-- 清理生成的文件 -->
+                    <!-- <generatedSourcesDirectory>${project.build.directory}/generated-sources/annotations</generatedSourcesDirectory> -->
+                    <annotationProcessorPaths>
+                        <path>
+                            <groupId>com.google.auto.service</groupId>
+                            <artifactId>auto-service</artifactId>
+                            <version>1.1.1</version>
+                        </path>
 
+                    </annotationProcessorPaths>
+                </configuration>
+            </plugin>
+        </plugins>
+    </build>
 </project>
