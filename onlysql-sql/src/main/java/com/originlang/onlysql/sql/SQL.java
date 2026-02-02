@@ -1,4 +1,4 @@
 package com.originlang.onlysql.sql;
 
-public class OnlySQL {
+public interface SQL {
 }
