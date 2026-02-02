@@ -9,7 +9,7 @@
     <version>1.0-SNAPSHOT</version>
     <packaging>pom</packaging>
     <modules>
-        <module>onlysql-util</module>
+        <module>onlysql-base</module>
         <module>onlysql-design</module>
         <module>onlysql-sql</module>
         <module>onlysql-apt</module>
@@ -54,6 +54,13 @@
                 <groupId>jakarta.annotation</groupId>
                 <artifactId>jakarta.annotation-api</artifactId>
                 <version>3.0.0</version>
+                <scope>compile</scope>
+            </dependency>
+            <!-- Source: https://mvnrepository.com/artifact/jakarta.persistence/jakarta.persistence-api -->
+            <dependency>
+                <groupId>jakarta.persistence</groupId>
+                <artifactId>jakarta.persistence-api</artifactId>
+                <version>3.2.0</version>
                 <scope>compile</scope>
             </dependency>
         </dependencies>

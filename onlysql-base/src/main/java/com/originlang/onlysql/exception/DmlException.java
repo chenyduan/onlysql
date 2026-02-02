@@ -1,4 +1,4 @@
-package com.universeparticle.lib.jpa.exception;
+package com.originlang.onlysql.exception;
 
 /**
  * dml异常,操作数据库中的数据，增删改查等

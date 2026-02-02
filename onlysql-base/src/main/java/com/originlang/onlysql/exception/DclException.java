@@ -1,4 +1,4 @@
-package com.universeparticle.lib.jpa.exception;
+package com.originlang.onlysql.exception;
 
 /**
  * dcl异常,操作数据库权限，

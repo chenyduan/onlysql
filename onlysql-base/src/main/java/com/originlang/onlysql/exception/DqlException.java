@@ -1,4 +1,4 @@
-package com.universeparticle.lib.jpa.exception;
+package com.originlang.onlysql.exception;
 
 /**
  * dql异常,操作数据库中的数据，查询

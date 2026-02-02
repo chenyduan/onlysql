@@ -1,4 +1,4 @@
-package com.universeparticle.lib.jpa.exception;
+package com.originlang.onlysql.exception;
 
 /**
  * ddl异常,操作数据库中的表结构，视图，索引等
