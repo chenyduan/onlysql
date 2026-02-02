@@ -15,7 +15,7 @@ import java.util.List;
 /**
  * 生成Q类
  */
-public class QEntityHandler {
+ class QEntityGenerate {
 
 	public static void qEntity(TypeElement entityClass, ProcessingEnvironment env) {
 		// 使用JavaPoet生成代码
@@ -78,6 +78,11 @@ public class QEntityHandler {
 
 		}
 		return fieldSpecs;
+	}
+
+
+	private static  void qType(){
+
 	}
 
 }

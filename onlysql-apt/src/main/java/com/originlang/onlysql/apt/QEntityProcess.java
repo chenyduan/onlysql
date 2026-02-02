@@ -17,9 +17,9 @@ import java.util.Set;
  */
 @AutoService(Processor.class)
 // 要处理的注解
-@SupportedAnnotationTypes(value = "jakarta.persistence.Entity")
+@SupportedAnnotationTypes(value = {"jakarta.persistence.Entity", "jakarta.persistence.MappedSuperclass"})
 @SupportedSourceVersion(SourceVersion.RELEASE_25)
-public class SpecificationProcess extends AbstractProcessor {
+public class QEntityProcess extends AbstractProcessor {
 
     @Override
     public synchronized void init(ProcessingEnvironment processingEnv) {
@@ -32,24 +32,26 @@ public class SpecificationProcess extends AbstractProcessor {
         System.out.println("\n***********process*********");
         System.out.println("\n***********process*********");
 
-//        for (TypeElement annotation : annotations) {
-//            List<? extends TypeParameterElement> typeParameters = annotation.getTypeParameters();
-//            for (TypeParameterElement typeParameter : typeParameters) {
-//                System.out.println("*****************typeParameter:" + typeParameter);
-//            }
-//
-//            Set<? extends Element> annotatedElements = roundEnv.getElementsAnnotatedWith(annotation);
-//            for (Element element : annotatedElements) {
+        for (TypeElement annotation : annotations) {
+            // 获取泛型参数
+            List<? extends TypeParameterElement> typeParameters = annotation.getTypeParameters();
+            for (TypeParameterElement typeParameter : typeParameters) {
+                System.out.println("*****************typeParameter:" + typeParameter);
+            }
+            // 获取注解的元素
+            Set<? extends Element> annotatedElements = roundEnv.getElementsAnnotatedWith(annotation);
+            for (Element element : annotatedElements) {
 //                System.out.println("*******************element:" + element);
-//                if (element.getKind() == ElementKind.CLASS) {
+                if (element.getKind() == ElementKind.CLASS) {
+                    QEntityGenerate.qEntity((TypeElement) element, processingEnv);
 //                    generateSpecificationClass((TypeElement) element, processingEnv);
 //                    // ConditionProcessHandler.condition((TypeElement) element,
 //                    // processingEnv);
-//                    // QEntityHandler.qEntity((TypeElement) element, processingEnv);
+//                    // QEntityGenerate.qEntity((TypeElement) element, processingEnv);
 //                    // RepositoryHandler.repo((TypeElement) element, processingEnv);
-//                }
-//            }
-//        }
+                }
+            }
+        }
         return false;
     }
 
@@ -122,7 +124,7 @@ public class SpecificationProcess extends AbstractProcessor {
 
     public static List list;
 
-    public SpecificationProcess() {
+    public QEntityProcess() {
         this.list = new ArrayList<>();
     }
 
