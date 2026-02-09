@@ -1,5 +1,7 @@
 package com.originlang.onlysql.sql;
 
+import java.util.List;
+
 public class Insert<T> {
 
     private String table;

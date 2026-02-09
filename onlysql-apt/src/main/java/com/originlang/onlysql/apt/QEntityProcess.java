@@ -23,6 +23,7 @@ public class QEntityProcess extends AbstractProcessor {
 
     QEntityGenerate qEntityGenerate = new QEntityGenerate();
     RecordGenerate recordGenerate = new RecordGenerate();
+    TableProcess tableProcess = new TableProcess();
 
     @Override
     public synchronized void init(ProcessingEnvironment processingEnv) {
@@ -45,6 +46,7 @@ public class QEntityProcess extends AbstractProcessor {
                 if (element.getKind() == ElementKind.CLASS) {
                     qEntityGenerate.qEntity((TypeElement) element, processingEnv);
                     recordGenerate.rEntity((TypeElement) element, processingEnv);
+                    tableProcess.tableInfo((TypeElement) element, processingEnv);
 //                    generateSpecificationClass((TypeElement) element, processingEnv);
 //                    // ConditionProcessHandler.condition((TypeElement) element,
 //                    // processingEnv);
