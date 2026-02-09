@@ -17,7 +17,7 @@ import java.util.List;
  */
  class QEntityGenerate {
 
-	public static void qEntity(TypeElement entityClass, ProcessingEnvironment env) {
+	public  void qEntity(TypeElement entityClass, ProcessingEnvironment env) {
 		// 使用JavaPoet生成代码
 		String className = "Q" + entityClass.getSimpleName();
 
@@ -58,17 +58,19 @@ import java.util.List;
 		}
 	}
 
-	private static List<FieldSpec> getFields(TypeElement entityClass) {
+	private  List<FieldSpec> getFields(TypeElement entityClass) {
 		List<FieldSpec> fieldSpecs = new ArrayList<>();
 		for (Element element : entityClass.getEnclosedElements()) {
-			if (element.getKind() == ElementKind.FIELD) {
-				// System.out.println("*************getFields:" + element);
-				// System.out.println("*******************" + element.getKind() +
-				// element.getSimpleName() + element.getModifiers());
-				// System.out.println(element.asType().toString());
+			if (element.getKind() == ElementKind.FIELD) { // file type
+				 System.out.println("*******************" + element.getKind() + // field
+				 element.getSimpleName() // id
+						 + element.getModifiers() //[private]
+				 );
+				 System.out.println(element.asType().toString()); // java.lang.Long
 				FieldSpec fieldSpec = FieldSpec.builder(
 						// TypeName.get(element.asType()),
-						String.class, element.getSimpleName().toString(),
+						String.class,
+								element.getSimpleName().toString(),
 						// element.getModifiers().toArray(new Modifier[0])
 						Modifier.PUBLIC, Modifier.STATIC, Modifier.FINAL)
 					.initializer("$S", element.getSimpleName().toString())
@@ -81,8 +83,11 @@ import java.util.List;
 	}
 
 
-	private static  void qType(){
 
-	}
+
+
+
+
+
 
 }

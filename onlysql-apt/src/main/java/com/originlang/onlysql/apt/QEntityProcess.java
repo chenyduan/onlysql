@@ -21,6 +21,9 @@ import java.util.Set;
 @SupportedSourceVersion(SourceVersion.RELEASE_25)
 public class QEntityProcess extends AbstractProcessor {
 
+    QEntityGenerate qEntityGenerate = new QEntityGenerate();
+    RecordGenerate recordGenerate = new RecordGenerate();
+
     @Override
     public synchronized void init(ProcessingEnvironment processingEnv) {
         super.init(processingEnv);
@@ -28,9 +31,7 @@ public class QEntityProcess extends AbstractProcessor {
 
     @Override
     public boolean process(Set<? extends TypeElement> annotations, RoundEnvironment roundEnv) {
-        System.out.println("\n***********process*********");
-        System.out.println("\n***********process*********");
-        System.out.println("\n***********process*********");
+
 
         for (TypeElement annotation : annotations) {
             // 获取泛型参数
@@ -41,9 +42,9 @@ public class QEntityProcess extends AbstractProcessor {
             // 获取注解的元素
             Set<? extends Element> annotatedElements = roundEnv.getElementsAnnotatedWith(annotation);
             for (Element element : annotatedElements) {
-//                System.out.println("*******************element:" + element);
                 if (element.getKind() == ElementKind.CLASS) {
-                    QEntityGenerate.qEntity((TypeElement) element, processingEnv);
+                    qEntityGenerate.qEntity((TypeElement) element, processingEnv);
+                    recordGenerate.rEntity((TypeElement) element, processingEnv);
 //                    generateSpecificationClass((TypeElement) element, processingEnv);
 //                    // ConditionProcessHandler.condition((TypeElement) element,
 //                    // processingEnv);
