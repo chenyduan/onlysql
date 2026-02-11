@@ -19,9 +19,9 @@ import java.util.Set;
 // 要处理的注解
 @SupportedAnnotationTypes(value = {"jakarta.persistence.Entity", "jakarta.persistence.MappedSuperclass"})
 @SupportedSourceVersion(SourceVersion.RELEASE_25)
-public class QEntityProcess extends AbstractProcessor {
+public class OnlySqlProcess extends AbstractProcessor {
 
-    QEntityGenerate qEntityGenerate = new QEntityGenerate();
+    QEntityHandler qEntityHandler = new QEntityHandler();
     RecordGenerate recordGenerate = new RecordGenerate();
     TableProcess tableProcess = new TableProcess();
 
@@ -44,13 +44,13 @@ public class QEntityProcess extends AbstractProcessor {
             Set<? extends Element> annotatedElements = roundEnv.getElementsAnnotatedWith(annotation);
             for (Element element : annotatedElements) {
                 if (element.getKind() == ElementKind.CLASS) {
-                    qEntityGenerate.qEntity((TypeElement) element, processingEnv);
+                    qEntityHandler.qEntity((TypeElement) element, processingEnv);
                     recordGenerate.rEntity((TypeElement) element, processingEnv);
                     tableProcess.tableInfo((TypeElement) element, processingEnv);
 //                    generateSpecificationClass((TypeElement) element, processingEnv);
 //                    // ConditionProcessHandler.condition((TypeElement) element,
 //                    // processingEnv);
-//                    // QEntityGenerate.qEntity((TypeElement) element, processingEnv);
+//                    // QEntityHandler.qEntity((TypeElement) element, processingEnv);
 //                    // RepositoryHandler.repo((TypeElement) element, processingEnv);
                 }
             }
@@ -100,11 +100,12 @@ public class QEntityProcess extends AbstractProcessor {
     }
 
     public MethodSpec builder(TypeElement entityClass, ProcessingEnvironment env, String className) {
+        String pkg = env.getElementUtils().getPackageOf(entityClass).getQualifiedName().toString();
+        ClassName specClass = pkg.isEmpty() ? ClassName.bestGuess(className) : ClassName.get(pkg, className);
         MethodSpec methodSpec = MethodSpec.methodBuilder("builder")
                 .addModifiers(Modifier.PUBLIC, Modifier.STATIC)
-                // 返回类型 SysUserRoleSpecificationBuilder
-                .returns(ClassName.get("", className))
-                .addStatement(" return new $T()  ", ClassName.get("", className))
+                .returns(specClass)
+                .addStatement(" return new $T()  ", specClass)
                 .build();
         return methodSpec;
     }
@@ -127,7 +128,7 @@ public class QEntityProcess extends AbstractProcessor {
 
     public static List list;
 
-    public QEntityProcess() {
+    public OnlySqlProcess() {
         this.list = new ArrayList<>();
     }
 
