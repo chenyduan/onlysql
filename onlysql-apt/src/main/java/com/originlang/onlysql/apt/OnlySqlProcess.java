@@ -3,6 +3,8 @@ package com.originlang.onlysql.apt;
 import com.google.auto.service.AutoService;
 import com.palantir.javapoet.*;
 
+import jakarta.persistence.Entity;
+
 import javax.annotation.processing.*;
 import javax.lang.model.SourceVersion;
 import javax.lang.model.element.*;
@@ -44,9 +46,13 @@ public class OnlySqlProcess extends AbstractProcessor {
             Set<? extends Element> annotatedElements = roundEnv.getElementsAnnotatedWith(annotation);
             for (Element element : annotatedElements) {
                 if (element.getKind() == ElementKind.CLASS) {
-                    qEntityHandler.qEntity((TypeElement) element, processingEnv);
-                    recordGenerate.rEntity((TypeElement) element, processingEnv);
-                    tableProcess.tableInfo((TypeElement) element, processingEnv);
+                    TypeElement typeElement = (TypeElement) element;
+                    // 仅对 @Entity 生成 Q 类，@MappedSuperclass 不生成
+                    if (typeElement.getAnnotation(Entity.class) != null) {
+                        qEntityHandler.qEntity(typeElement, processingEnv);
+                    }
+                    recordGenerate.rEntity(typeElement, processingEnv);
+                    tableProcess.tableInfo(typeElement, processingEnv);
 //                    generateSpecificationClass((TypeElement) element, processingEnv);
 //                    // ConditionProcessHandler.condition((TypeElement) element,
 //                    // processingEnv);

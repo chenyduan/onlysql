@@ -17,6 +17,12 @@
             <artifactId>onlysql</artifactId>
             <version>1.0-SNAPSHOT</version>
         </dependency>
+        <!-- 使用生成的 Q/R/T 类必须依赖 onlysql-sql（Q 类方法返回 Insert/Select/Update/Delete） -->
+        <dependency>
+            <groupId>com.originlang.onlysql</groupId>
+            <artifactId>onlysql-sql</artifactId>
+            <version>1.0-SNAPSHOT</version>
+        </dependency>
         <dependency>
             <groupId>jakarta.persistence</groupId>
             <artifactId>jakarta.persistence-api</artifactId>

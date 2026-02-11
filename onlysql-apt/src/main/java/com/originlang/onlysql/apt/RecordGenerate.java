@@ -1,7 +1,7 @@
 package com.originlang.onlysql.apt;
 
-import com.palantir.javapoet.FieldSpec;
 import com.palantir.javapoet.JavaFile;
+import com.palantir.javapoet.MethodSpec;
 import com.palantir.javapoet.TypeName;
 import com.palantir.javapoet.TypeSpec;
 
@@ -10,44 +10,33 @@ import javax.lang.model.element.Element;
 import javax.lang.model.element.ElementKind;
 import javax.lang.model.element.Modifier;
 import javax.lang.model.element.TypeElement;
+import javax.lang.model.type.DeclaredType;
+import javax.lang.model.type.TypeKind;
+import javax.lang.model.type.TypeMirror;
 import javax.tools.Diagnostic;
 import java.io.IOException;
 import java.util.ArrayList;
 import java.util.List;
 
 /**
- * generate pojo
+ * 生成 REntity：对应数据库表字段的 record，将当前 Entity 和 SuperEntity 的字段统一归纳。
+ * 示例：public record RSysUser(Long id, LocalDateTime createTime) {}
  */
 class RecordGenerate {
 
     public void rEntity(TypeElement entityClass, ProcessingEnvironment env) {
-        // 使用JavaPoet生成代码
         String className = "R" + entityClass.getSimpleName();
+        List<RecordComponent> components = getRecordComponents(entityClass);
 
-        // MethodSpec methodSpec = MethodSpec.methodBuilder("getSpecification")
-        // .addModifiers(Modifier.PUBLIC, Modifier.STATIC)
-        // .returns(
-        // ParameterizedTypeName.get(
-        // ClassName.get(Specification.class),
-        // ClassName.get("", entityClass.getSimpleName().toString())
-        // )
-        // )
-        // .addParameter(String.class, "field")
-        // .addParameter(Object.class, "value")
-        // .addStatement("return (root, query, cb) -> {\n" +
-        // " java.util.List<$T> predicates = new $T<>();\n" +
-        // " if (value != null) {\n" +
-        // " predicates.add(cb.equal(root.get(field), value));\n" +
-        // " }\n" +
-        // " return cb.and(predicates.toArray(new $T[0]));\n" +
-        // "}", Predicate.class, ArrayList.class, Predicate.class)
-        // .build();
+        MethodSpec.Builder constructorBuilder = MethodSpec.constructorBuilder();
+        for (RecordComponent comp : components) {
+            constructorBuilder.addParameter(comp.type, comp.name);
+        }
+        MethodSpec recordConstructor = constructorBuilder.build();
 
-        TypeSpec typeSpec = TypeSpec.classBuilder(className)
-                .addModifiers(Modifier.PUBLIC, Modifier.FINAL)
-                // .addAnnotation(Component.class)
-                .addFields(getFields(entityClass))
-                // .addMethod(methodSpec)
+        TypeSpec typeSpec = TypeSpec.recordBuilder(className)
+                .addModifiers(Modifier.PUBLIC)
+                .recordConstructor(recordConstructor)
                 .build();
 
         JavaFile javaFile = JavaFile.builder(env.getElementUtils().getPackageOf(entityClass).toString(), typeSpec)
@@ -60,28 +49,42 @@ class RecordGenerate {
         }
     }
 
-    private List<FieldSpec> getFields(TypeElement entityClass) {
-        List<FieldSpec> fieldSpecs = new ArrayList<>();
-        for (Element element : entityClass.getEnclosedElements()) {
-            if (element.getKind() == ElementKind.FIELD) { // file type
-                System.out.println("*******************" + element.getKind() + // field
-                        element.getSimpleName() // id
-                        + element.getModifiers() //[private]
-                );
-                System.out.println(element.asType().toString()); // java.lang.Long
-                FieldSpec fieldSpec = FieldSpec.builder(
-                                 TypeName.get(element.asType()),
-//                                String.class,
-                                element.getSimpleName().toString(),
-                                // element.getModifiers().toArray(new Modifier[0])
-                                Modifier.PUBLIC)
-//                        .initializer("$S", element.getSimpleName().toString())
-                        .build();
-                fieldSpecs.add(fieldSpec);
-            }
-
-        }
-        return fieldSpecs;
+    /**
+     * 收集当前实体及其父类（含 MappedSuperclass）的所有字段，先父类后子类，作为 record 组件。
+     */
+    private List<RecordComponent> getRecordComponents(TypeElement entityClass) {
+        List<RecordComponent> components = new ArrayList<>();
+        collectFieldsFromHierarchy(entityClass, components);
+        return components;
     }
 
+    private void collectFieldsFromHierarchy(TypeElement typeElement, List<RecordComponent> out) {
+        TypeMirror superType = typeElement.getSuperclass();
+        if (superType.getKind() == TypeKind.DECLARED) {
+            DeclaredType declared = (DeclaredType) superType;
+            if (declared.asElement() instanceof TypeElement superElement) {
+                String superName = superElement.getQualifiedName().toString();
+                if (!"java.lang.Object".equals(superName)) {
+                    collectFieldsFromHierarchy(superElement, out);
+                }
+            }
+        }
+        for (Element element : typeElement.getEnclosedElements()) {
+            if (element.getKind() == ElementKind.FIELD) {
+                out.add(new RecordComponent(
+                        TypeName.get(element.asType()),
+                        element.getSimpleName().toString()));
+            }
+        }
+    }
+
+    private static final class RecordComponent {
+        final TypeName type;
+        final String name;
+
+        RecordComponent(TypeName type, String name) {
+            this.type = type;
+            this.name = name;
+        }
+    }
 }
