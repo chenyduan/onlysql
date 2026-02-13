@@ -13,6 +13,7 @@ import java.sql.PreparedStatement;
 import java.sql.ResultSet;
 import java.sql.ResultSetMetaData;
 import java.sql.SQLException;
+import java.sql.Statement;
 import java.util.ArrayList;
 import java.util.LinkedHashMap;
 import java.util.List;
@@ -30,10 +31,11 @@ public class JdbcDmlExecutor implements DmlExecutor {
 
     private final DataSource dataSource;
     private final ObservabilityConfig observability;
+    private final Dialect dialect;
     private static final ThreadLocal<Connection> TRANSACTION_CONNECTION = new ThreadLocal<>();
 
     public JdbcDmlExecutor(DataSource dataSource) {
-        this(dataSource, null);
+        this(dataSource, null, null);
     }
 
     /**
@@ -43,11 +45,23 @@ public class JdbcDmlExecutor implements DmlExecutor {
      * @param observability 可观测配置，null 表示不启用
      */
     public JdbcDmlExecutor(DataSource dataSource, ObservabilityConfig observability) {
+        this(dataSource, observability, null);
+    }
+
+    /**
+     * 指定数据源、可观测配置与数据库方言。
+     *
+     * @param dataSource    数据源
+     * @param observability 可观测配置，null 表示不启用
+     * @param dialect       方言，null 时使用 {@link LimitOffsetDialect}（LIMIT/OFFSET）；也可用 {@link Dialect#fromJdbcUrl(String)} 根据 URL 选择
+     */
+    public JdbcDmlExecutor(DataSource dataSource, ObservabilityConfig observability, Dialect dialect) {
         if (dataSource == null) {
             throw new IllegalArgumentException("dataSource 不能为 null");
         }
         this.dataSource = dataSource;
         this.observability = observability;
+        this.dialect = dialect != null ? dialect : LimitOffsetDialect.INSTANCE;
     }
 
     /** 执行块并记录耗时与日志/慢查询/metrics */
@@ -142,14 +156,15 @@ public class JdbcDmlExecutor implements DmlExecutor {
     }
 
     @Override
-    public long executeInsert(Insert<?> insert) {
+    public void executeInsert(Insert<?> insert) {
         List<Map<String, Object>> batchRows = insert.getBatchRows();
         if (batchRows != null && !batchRows.isEmpty()) {
-            return executeInsertBatch(insert.getTable(), batchRows);
+            executeInsertBatch(insert.getTable(), batchRows);
+            return;
         }
         Map<String, Object> values = insert.getValues();
         if (values.isEmpty()) {
-            return 0;
+            return;
         }
         String table = insert.getTable();
         List<String> columns = new ArrayList<>(values.keySet());
@@ -158,10 +173,11 @@ public class JdbcDmlExecutor implements DmlExecutor {
         for (String col : columns) {
             params.add(values.get(col));
         }
-        return runWithObservability("INSERT", sql, params, new ObservableCall<>() {
+        runWithObservability("INSERT", sql, params, new ObservableCall<Long>() {
             @Override
             public Long run() {
-                return doExecuteInsert(insert, sql, columns, values);
+                InsertResult r = doExecuteInsertWithResult(insert, sql, columns, values);
+                return r.generatedKey != null ? r.generatedKey : (long) r.rowsAffected;
             }
             @Override
             public long rowsAffected(Long result) {
@@ -170,8 +186,56 @@ public class JdbcDmlExecutor implements DmlExecutor {
         });
     }
 
-    private long doExecuteInsert(Insert<?> insert, String sql, List<String> columns,
-                                Map<String, Object> values) {
+    @Override
+    public <T> T executeInsertAndReturn(Insert<?> insert, Class<T> entityClass) {
+        List<Map<String, Object>> batchRows = insert.getBatchRows();
+        if (batchRows != null && !batchRows.isEmpty()) {
+            executeInsert(insert);
+            return null;
+        }
+        Map<String, Object> values = insert.getValues();
+        if (values.isEmpty()) {
+            return null;
+        }
+        String table = insert.getTable();
+        List<String> columns = new ArrayList<>(values.keySet());
+        String sql = buildInsertSql(table, columns);
+        List<Object> params = new ArrayList<>(columns.size());
+        for (String col : columns) {
+            params.add(values.get(col));
+        }
+        InsertResult[] holder = new InsertResult[1];
+        runWithObservability("INSERT", sql, params, new ObservableCall<InsertResult>() {
+            @Override
+            public InsertResult run() {
+                holder[0] = doExecuteInsertWithResult(insert, sql, columns, values);
+                return holder[0];
+            }
+            @Override
+            public long rowsAffected(InsertResult result) {
+                return result != null && result.generatedKey != null ? result.generatedKey : (result != null ? result.rowsAffected : 0);
+            }
+        });
+        InsertResult r = holder[0];
+        Map<String, Object> row = new LinkedHashMap<>(insert.getValues());
+        if (r != null && r.generatedKey != null && insert.getGeneratedKeyColumn() != null) {
+            row.put(insert.getGeneratedKeyColumn(), r.generatedKey);
+        }
+        return EntityMapper.mapToEntity(row, entityClass);
+    }
+
+    private static final class InsertResult {
+        final Long generatedKey;
+        final int rowsAffected;
+
+        InsertResult(Long generatedKey, int rowsAffected) {
+            this.generatedKey = generatedKey;
+            this.rowsAffected = rowsAffected;
+        }
+    }
+
+    private InsertResult doExecuteInsertWithResult(Insert<?> insert, String sql, List<String> columns,
+                                                  Map<String, Object> values) {
         String generatedKeyColumn = insert.getGeneratedKeyColumn();
         boolean requestGeneratedKeys = generatedKeyColumn != null;
         Connection conn = null;
@@ -184,14 +248,15 @@ public class JdbcDmlExecutor implements DmlExecutor {
                     ps.setObject(i++, values.get(col));
                 }
                 int rows = ps.executeUpdate();
+                Long key = null;
                 if (requestGeneratedKeys && rows > 0) {
                     try (ResultSet rs = ps.getGeneratedKeys()) {
                         if (rs.next()) {
-                            return rs.getLong(1);
+                            key = rs.getLong(1);
                         }
                     }
                 }
-                return rows;
+                return new InsertResult(key, rows);
             }
         } catch (SQLException e) {
             throw new RuntimeException("INSERT 执行失败: " + sql, e);
@@ -215,7 +280,7 @@ public class JdbcDmlExecutor implements DmlExecutor {
         List<String> columns = new ArrayList<>(batchRows.get(0).keySet());
         String sql = buildInsertSql(table, columns);
         List<Object> paramsForLog = List.of("batch size: " + batchRows.size());
-        return runWithObservability("INSERT", sql, paramsForLog, new ObservableCall<>() {
+        return runWithObservability("INSERT", sql, paramsForLog, new ObservableCall<Long>() {
             @Override
             public Long run() {
                 return doExecuteInsertBatch(table, columns, sql, batchRows);
@@ -274,35 +339,46 @@ public class JdbcDmlExecutor implements DmlExecutor {
     @Override
     public long executeUpdate(Update update) {
         Map<String, Object> values = update.getValues();
-        if (values.isEmpty()) {
+        String versionColumn = update.getVersionColumn();
+        if (values.isEmpty() && versionColumn == null) {
             return 0;
         }
         String table = update.getTable();
         List<String> columns = new ArrayList<>(values.keySet());
+        if (versionColumn != null) {
+            columns.remove(versionColumn);
+        }
         String whereExpr = update.getWhereExpr();
         List<Object> whereParams = update.getWhereParams();
-        String sql = buildUpdateSql(table, columns, whereExpr);
-        List<Object> params = new ArrayList<>(values.size() + (whereParams != null ? whereParams.size() : 0));
+        String sql = buildUpdateSql(table, columns, whereExpr, versionColumn);
+        List<Object> params = new ArrayList<>();
         for (String col : columns) {
             params.add(values.get(col));
         }
         if (whereParams != null) {
             params.addAll(whereParams);
         }
-        return runWithObservability("UPDATE", sql, params, new ObservableCall<>() {
+        if (versionColumn != null && update.getVersionValue() != null) {
+            params.add(update.getVersionValue());
+        }
+        long rows = runWithObservability("UPDATE", sql, params, new ObservableCall<Long>() {
             @Override
             public Long run() {
-                return doExecuteUpdate(update, sql, columns, values, whereParams);
+                return doExecuteUpdate(update, sql, columns, values, whereParams, versionColumn);
             }
             @Override
             public long rowsAffected(Long result) {
                 return result != null ? result : 0;
             }
         });
+        if (versionColumn != null && rows == 0) {
+            throw new OptimisticLockException("乐观锁冲突：UPDATE 影响行数为 0，版本列 " + versionColumn + " 可能已变更或记录不存在");
+        }
+        return rows;
     }
 
     private long doExecuteUpdate(Update update, String sql, List<String> columns,
-                                Map<String, Object> values, List<Object> whereParams) {
+                                Map<String, Object> values, List<Object> whereParams, String versionColumn) {
         Connection conn = null;
         try {
             conn = getConnection();
@@ -315,6 +391,9 @@ public class JdbcDmlExecutor implements DmlExecutor {
                     for (Object p : whereParams) {
                         ps.setObject(i++, p);
                     }
+                }
+                if (versionColumn != null && update.getVersionValue() != null) {
+                    ps.setObject(i++, update.getVersionValue());
                 }
                 return ps.executeUpdate();
             }
@@ -335,7 +414,7 @@ public class JdbcDmlExecutor implements DmlExecutor {
         }
         String sql = "DELETE FROM " + quoteIdentifier(table) + " WHERE " + whereExpr;
         List<Object> params = whereParams != null ? new ArrayList<>(whereParams) : List.of();
-        return runWithObservability("DELETE", sql, params, new ObservableCall<>() {
+        return runWithObservability("DELETE", sql, params, new ObservableCall<Long>() {
             @Override
             public Long run() {
                 return doExecuteDelete(delete, sql, whereParams);
@@ -378,7 +457,7 @@ public class JdbcDmlExecutor implements DmlExecutor {
         Long offset = select.getOffset();
         String sql = buildSelectSql(table, tableAlias, joins, columns, whereExpr, limit, offset);
         List<Object> params = collectSelectParams(select);
-        return runWithObservability("SELECT", sql, params, new ObservableCall<>() {
+        return runWithObservability("SELECT", sql, params, new ObservableCall<List<Map<String, Object>>>() {
             @Override
             public List<Map<String, Object>> run() {
                 return doExecuteSelect(select, sql);
@@ -442,6 +521,24 @@ public class JdbcDmlExecutor implements DmlExecutor {
         return new Page<>(list, raw.getTotal(), raw.getPageIndex(), raw.getPageSize());
     }
 
+    @Override
+    public void executeDdl(String ddlSql) {
+        if (ddlSql == null || ddlSql.isBlank()) {
+            return;
+        }
+        Connection conn = null;
+        try {
+            conn = getConnection();
+            try (Statement stmt = conn.createStatement()) {
+                stmt.execute(ddlSql);
+            }
+        } catch (SQLException e) {
+            throw new RuntimeException("DDL 执行失败: " + ddlSql, e);
+        } finally {
+            releaseConnection(conn);
+        }
+    }
+
     /** 根据 Select 的 FROM/JOIN/WHERE 执行 COUNT(*) 查询。 */
     private long executeCount(Select select) {
         String sql = buildSelectSql(
@@ -454,7 +551,7 @@ public class JdbcDmlExecutor implements DmlExecutor {
                 null
         );
         List<Object> params = collectSelectParams(select);
-        return runWithObservability("COUNT", sql, params, new ObservableCall<>() {
+        return runWithObservability("COUNT", sql, params, new ObservableCall<Long>() {
             @Override
             public Long run() {
                 return runCountQuery(sql, select);
@@ -495,7 +592,7 @@ public class JdbcDmlExecutor implements DmlExecutor {
                 offset
         );
         List<Object> params = collectSelectParams(select);
-        return runWithObservability("SELECT", sql, params, new ObservableCall<>() {
+        return runWithObservability("SELECT", sql, params, new ObservableCall<List<Map<String, Object>>>() {
             @Override
             public List<Map<String, Object>> run() {
                 return doExecuteSelectWithLimitOffset(select, sql);
@@ -539,21 +636,30 @@ public class JdbcDmlExecutor implements DmlExecutor {
         }
     }
 
-    private static String buildUpdateSql(String table, List<String> columns, String whereExpr) {
+    private static String buildUpdateSql(String table, List<String> columns, String whereExpr, String versionColumn) {
         StringBuilder set = new StringBuilder();
         for (int i = 0; i < columns.size(); i++) {
             if (i > 0) set.append(", ");
             set.append(quoteIdentifier(columns.get(i))).append(" = ?");
         }
+        if (versionColumn != null && !versionColumn.isEmpty()) {
+            if (set.length() > 0) set.append(", ");
+            set.append(quoteIdentifier(versionColumn)).append(" = ").append(quoteIdentifier(versionColumn)).append(" + 1");
+        }
         String sql = "UPDATE " + quoteIdentifier(table) + " SET " + set;
         if (whereExpr != null && !whereExpr.isEmpty()) {
             sql += " WHERE " + whereExpr;
+            if (versionColumn != null && !versionColumn.isEmpty()) {
+                sql += " AND " + quoteIdentifier(versionColumn) + " = ?";
+            }
+        } else if (versionColumn != null && !versionColumn.isEmpty()) {
+            sql += " WHERE " + quoteIdentifier(versionColumn) + " = ?";
         }
         return sql;
     }
 
-    private static String buildSelectSql(String table, String tableAlias, List<Select.Join> joins,
-                                         List<String> columns, String whereExpr, Long limit, Long offset) {
+    private String buildSelectSql(String table, String tableAlias, List<Select.Join> joins,
+                                  List<String> columns, String whereExpr, Long limit, Long offset) {
         String cols = columns.isEmpty()
                 ? "*"
                 : String.join(", ", columns.stream().map(JdbcDmlExecutor::quoteColumnOrExpr).toList());
@@ -576,13 +682,9 @@ public class JdbcDmlExecutor implements DmlExecutor {
         if (whereExpr != null && !whereExpr.isEmpty()) {
             from.append(" WHERE ").append(whereExpr);
         }
-        if (limit != null && limit > 0) {
-            from.append(" LIMIT ").append(limit);
-        }
-        if (offset != null && offset > 0) {
-            from.append(" OFFSET ").append(offset);
-        }
-        return from.toString();
+        long lim = (limit != null && limit > 0) ? limit : 0;
+        long off = (offset != null && offset > 0) ? offset : 0;
+        return dialect.getLimitOffsetSql(from.toString(), lim, off);
     }
 
     private static List<Map<String, Object>> mapResultSet(ResultSet rs) throws SQLException {

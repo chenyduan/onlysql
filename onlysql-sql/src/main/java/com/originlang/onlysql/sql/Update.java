@@ -20,6 +20,9 @@ public class Update {
     private final Map<String, Object> values = new LinkedHashMap<>();
     private String whereExpr;
     private final List<Object> whereParams = new ArrayList<>();
+    /** 乐观锁：列名，如 "revision"；非空时 SET 中该列为 version = version + 1，WHERE 中追加 AND version = ? */
+    private String versionColumn;
+    private Object versionValue;
 
     public Update(String table) {
         this.table = table;
@@ -30,6 +33,19 @@ public class Update {
      */
     public Update set(String column, Object value) {
         values.put(column, value);
+        return this;
+    }
+
+    /**
+     * 乐观锁：指定版本列及当前值。执行时 SET 中该列变为 {@code column = column + 1}，WHERE 中追加 {@code AND column = ?}；
+     * 若影响行数为 0 则执行器抛出乐观锁异常。
+     *
+     * @param column 版本列名，如 "revision"
+     * @param currentValue 当前版本值（用于 WHERE）
+     */
+    public Update versionColumn(String column, Object currentValue) {
+        this.versionColumn = column;
+        this.versionValue = currentValue;
         return this;
     }
 
@@ -98,5 +114,15 @@ public class Update {
 
     public List<Object> getWhereParams() {
         return new ArrayList<>(whereParams);
+    }
+
+    /** 乐观锁版本列名，null 表示未启用。 */
+    public String getVersionColumn() {
+        return versionColumn;
+    }
+
+    /** 乐观锁当前版本值（用于 WHERE）。 */
+    public Object getVersionValue() {
+        return versionValue;
     }
 }

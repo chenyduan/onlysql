@@ -26,6 +26,10 @@
             <groupId>org.slf4j</groupId>
             <artifactId>slf4j-api</artifactId>
         </dependency>
+        <dependency>
+            <groupId>jakarta.persistence</groupId>
+            <artifactId>jakarta.persistence-api</artifactId>
+        </dependency>
         <!-- H2：可选，用于 H2DataSources 工厂；使用 H2 时由应用或 example 引入 -->
         <dependency>
             <groupId>com.h2database</groupId>

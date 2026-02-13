@@ -20,8 +20,8 @@ import javax.lang.model.type.TypeMirror;
 import javax.tools.Diagnostic;
 import java.io.IOException;
 import java.util.ArrayList;
+import java.util.Collections;
 import java.util.List;
-import java.util.stream.Collectors;
 
 /**
  * 为每个 @Entity 生成 TEntityWhere，用于链式 where(TSysUser.id.eq(2L).name.eq("admin"))。
@@ -57,43 +57,80 @@ class TEntityWhereHandler {
         MethodSpec.Builder constructor = MethodSpec.constructorBuilder().addModifiers(Modifier.PRIVATE);
         typeBuilder.addMethod(constructor.build());
 
-        // static of(String col, Object val)
+        // static of(String col, Object val) -> eq
         MethodSpec ofMethod = MethodSpec.methodBuilder("of")
                 .addModifiers(Modifier.PUBLIC, Modifier.STATIC)
                 .returns(whereType)
                 .addParameter(String.class, "col")
                 .addParameter(Object.class, "val")
                 .addStatement("$T w = new $T()", whereType, whereType)
-                .addStatement("w.conditions.add(new $T[]{col, val})", Object.class)
+                .addStatement("w.conditions.add(new $T[]{col, \"=\", val})", Object.class)
                 .addStatement("return w")
                 .build();
         typeBuilder.addMethod(ofMethod);
 
-        // addCondition
-        MethodSpec addCondition = MethodSpec.methodBuilder("addCondition")
+        // static ofCond(String column, String op, Object... values) -> 任意操作符首条件
+        MethodSpec ofCondMethod = MethodSpec.methodBuilder("ofCond")
+                .addModifiers(Modifier.PUBLIC, Modifier.STATIC)
+                .returns(whereType)
+                .addParameter(String.class, "column")
+                .addParameter(String.class, "op")
+                .addParameter(Object[].class, "values")
+                .addStatement("$T w = new $T()", whereType, whereType)
+                .addStatement("w.addCondition(column, op, values != null ? values : new $T[0])", Object.class)
+                .addStatement("return w")
+                .build();
+        typeBuilder.addMethod(ofCondMethod);
+
+        // addCondition(column, op, Object[] values)；addCondition(column, value) 使用接口 default
+        MethodSpec addConditionOp = MethodSpec.methodBuilder("addCondition")
                 .addModifiers(Modifier.PUBLIC)
                 .addAnnotation(Override.class)
                 .addParameter(String.class, "column")
-                .addParameter(Object.class, "value")
-                .addStatement("conditions.add(new $T[]{column, value})", Object.class)
+                .addParameter(String.class, "op")
+                .addParameter(Object[].class, "values")
+                .addCode("$T arr = new $T[2 + (values != null ? values.length : 0)];\n", Object[].class, Object.class)
+                .addCode("arr[0] = column;\n")
+                .addCode("arr[1] = op;\n")
+                .addCode("if (values != null) for (int i = 0; i < values.length; i++) arr[2 + i] = values[i];\n")
+                .addCode("conditions.add(arr);\n")
                 .build();
-        typeBuilder.addMethod(addCondition);
+        typeBuilder.addMethod(addConditionOp);
 
-        // getWhereExpr
+        // getWhereExpr: 按 column, op 生成表达式
         MethodSpec getWhereExpr = MethodSpec.methodBuilder("getWhereExpr")
                 .addModifiers(Modifier.PUBLIC)
                 .addAnnotation(Override.class)
                 .returns(String.class)
-                .addStatement("return conditions.stream().map(c -> ($T)c[0] + \" = ?\").collect($T.joining(\" AND \"))", String.class, Collectors.class)
+                .addCode("$T<String> parts = new $T<>();\n", List.class, ArrayList.class)
+                .addCode("for ($T[] c : conditions) {\n", Object.class)
+                .addCode("  $T col = ($T) c[0];\n", String.class, String.class)
+                .addCode("  $T op = ($T) c[1];\n", String.class, String.class)
+                .addCode("  if (\"IN\".equals(op)) {\n")
+                .addCode("    int n = c.length - 2;\n")
+                .addCode("    if (n <= 0) parts.add(\"1=0\");\n")
+                .addCode("    else parts.add(col + \" IN (\" + $T.join(\", \", $T.nCopies(n, \"?\")) + \")\");\n", String.class, Collections.class)
+                .addCode("  } else if (\"IS NULL\".equals(op)) {\n")
+                .addCode("    parts.add(col + \" IS NULL\");\n")
+                .addCode("  } else {\n")
+                .addCode("    parts.add(col + \" \" + op + \" ?\");\n")
+                .addCode("  }\n")
+                .addCode("}\n")
+                .addCode("return $T.join(\" AND \", parts);\n", String.class)
                 .build();
         typeBuilder.addMethod(getWhereExpr);
 
-        // getWhereParams
+        // getWhereParams: 按条件顺序展开参数（IS NULL 无参数）
         MethodSpec getWhereParams = MethodSpec.methodBuilder("getWhereParams")
                 .addModifiers(Modifier.PUBLIC)
                 .addAnnotation(Override.class)
                 .returns(ParameterizedTypeName.get(ClassName.get(List.class), ClassName.get(Object.class)))
-                .addStatement("return conditions.stream().map(c -> c[1]).collect($T.toList())", Collectors.class)
+                .addCode("$T<Object> out = new $T<>();\n", List.class, ArrayList.class)
+                .addCode("for ($T[] c : conditions) {\n", Object.class)
+                .addCode("  if (\"IS NULL\".equals(c[1])) continue;\n")
+                .addCode("  for (int i = 2; i < c.length; i++) out.add(c[i]);\n")
+                .addCode("}\n")
+                .addCode("return out;\n")
                 .build();
         typeBuilder.addMethod(getWhereParams);
 

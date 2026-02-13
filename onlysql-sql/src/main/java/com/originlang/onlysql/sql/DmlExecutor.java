@@ -13,12 +13,22 @@ import java.util.concurrent.Callable;
 public interface DmlExecutor {
 
     /**
-     * 执行 INSERT。单条且 Insert 设置了主键列且未提供主键值时返回生成的主键，否则返回影响行数；批量恒返回影响行数。
+     * 执行 INSERT（仅执行，不返回主键或行数）。单条/批量均由本方法执行。
      *
      * @param insert 待执行的 Insert DSL
-     * @return 生成的主键或影响行数
      */
-    long executeInsert(Insert<?> insert);
+    void executeInsert(Insert<?> insert);
+
+    /**
+     * 单条 INSERT 并返回填充后的实体（含生成的主键）；批量插入时执行后返回 null。
+     *
+     * @param insert      待执行的 Insert DSL（仅单条）
+     * @param entityClass 实体类，需有无参构造
+     * @return 插入后的实体（主键等已填充），批量时返回 null
+     */
+    default <T> T executeInsertAndReturn(Insert<?> insert, Class<T> entityClass) {
+        throw new UnsupportedOperationException("本执行器不支持 executeInsertAndReturn，请使用 JdbcDmlExecutor");
+    }
 
     /**
      * 执行 UPDATE，返回影响行数。
@@ -98,5 +108,14 @@ public interface DmlExecutor {
      */
     default <T> T runInTransaction(Callable<T> callable) {
         throw new UnsupportedOperationException("本执行器不支持事务，请使用 JdbcDmlExecutor 等支持事务的实现");
+    }
+
+    /**
+     * 执行 DDL（如 CREATE TABLE）。默认不支持；JdbcDmlExecutor 等可覆盖。
+     *
+     * @param ddlSql 完整 DDL 语句，无占位符
+     */
+    default void executeDdl(String ddlSql) {
+        throw new UnsupportedOperationException("本执行器不支持 DDL，请使用 JdbcDmlExecutor");
     }
 }

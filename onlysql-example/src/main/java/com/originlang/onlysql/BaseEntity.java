@@ -1,6 +1,7 @@
 package com.originlang.onlysql;
 
 import jakarta.persistence.MappedSuperclass;
+import jakarta.persistence.Version;
 
 import java.io.Serializable;
 import java.time.LocalDateTime;
@@ -12,6 +13,7 @@ public class BaseEntity implements Serializable {
     private LocalDateTime updateTime;
     private Long createBy;
     private Long updateBy;
+    @Version
     private Integer revision;
 
     public LocalDateTime getCreateTime() { return createTime; }
