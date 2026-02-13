@@ -12,9 +12,12 @@ import com.palantir.javapoet.TypeName;
 import com.palantir.javapoet.TypeSpec;
 
 import jakarta.persistence.Entity;
+import jakarta.persistence.Id;
 import jakarta.persistence.MappedSuperclass;
 
 import javax.annotation.processing.ProcessingEnvironment;
+import javax.lang.model.element.Element;
+import javax.lang.model.element.ElementKind;
 import javax.lang.model.element.Modifier;
 import javax.lang.model.element.TypeElement;
 import javax.lang.model.type.DeclaredType;
@@ -40,12 +43,13 @@ class QEntityHandler {
         Modifier[] classModifiers = isMappedSuperclass
                 ? new Modifier[]{Modifier.PUBLIC}
                 : new Modifier[]{Modifier.PUBLIC, Modifier.FINAL};
+        ClassName tType = pkg.isEmpty() ? ClassName.bestGuess("T" + entityClass.getSimpleName()) : ClassName.get(pkg, "T" + entityClass.getSimpleName());
         TypeSpec.Builder typeBuilder = TypeSpec.classBuilder(className)
                 .addModifiers(classModifiers)
-                .addMethod(selectMethod())
+                .addMethod(selectMethod(entityClass, tType))
                 .addMethod(insertMethod(entityClass, pkg))
-                .addMethod(updateMethod())
-                .addMethod(deleteMethod());
+                .addMethod(updateMethod(entityClass, tType))
+                .addMethod(deleteMethod(entityClass, tType));
 
         if (qSuperClass != null) {
             typeBuilder.superclass(qSuperClass);
@@ -94,37 +98,61 @@ class QEntityHandler {
         return "java.lang.Object".equals(superClass.getQualifiedName().toString()) ? null : superClass;
     }
 
-    private MethodSpec selectMethod() {
+    private MethodSpec selectMethod(TypeElement entityClass, ClassName tType) {
         return MethodSpec.methodBuilder("select")
                 .addModifiers(Modifier.PUBLIC)
                 .returns(Select.class)
-                .addStatement("return new $T()", Select.class)
+                .addStatement("return $T.from($T.Table.tableName)", Select.class, tType)
                 .build();
     }
 
     private MethodSpec insertMethod(TypeElement entityClass, String pkg) {
         String tClassName = "T" + entityClass.getSimpleName();
         ClassName tType = pkg.isEmpty() ? ClassName.bestGuess(tClassName) : ClassName.get(pkg, tClassName);
-        return MethodSpec.methodBuilder("insert")
+        TypeName entityType = TypeName.get(entityClass.asType());
+        ParameterizedTypeName insertType = ParameterizedTypeName.get(ClassName.get(Insert.class), entityType);
+        String idFieldName = findIdFieldName(entityClass);
+        MethodSpec.Builder builder = MethodSpec.methodBuilder("insert")
                 .addModifiers(Modifier.PUBLIC)
-                .returns(ParameterizedTypeName.get(ClassName.get(Insert.class), TypeName.get(entityClass.asType())))
-                .addStatement("return new $T<>($T.Table.tableName)", Insert.class, tType)
-                .build();
+                .returns(insertType);
+        if (idFieldName != null) {
+            builder.addStatement("return new $T($T.Table.tableName).generatedKeyColumn($T.Table.$L)", insertType, tType, tType, idFieldName);
+        } else {
+            builder.addStatement("return new $T($T.Table.tableName)", insertType, tType);
+        }
+        return builder.build();
     }
 
-    private MethodSpec updateMethod() {
+    /** 查找实体（含父类）中带 @Id 的字段名，仅返回第一个。 */
+    private String findIdFieldName(TypeElement entityClass) {
+        TypeElement current = entityClass;
+        while (current != null && !"java.lang.Object".equals(current.getQualifiedName().toString())) {
+            for (Element e : current.getEnclosedElements()) {
+                if (e.getKind() == ElementKind.FIELD && e.getAnnotation(Id.class) != null) {
+                    return e.getSimpleName().toString();
+                }
+            }
+            if (current.getSuperclass().getKind() != TypeKind.DECLARED) break;
+            current = (TypeElement) ((DeclaredType) current.getSuperclass()).asElement();
+        }
+        return null;
+    }
+
+    private MethodSpec updateMethod(TypeElement entityClass, ClassName tType) {
         return MethodSpec.methodBuilder("update")
                 .addModifiers(Modifier.PUBLIC)
                 .returns(Update.class)
-                .addStatement("return new $T()", Update.class)
+                .addStatement("return new $T($T.Table.tableName)", Update.class, tType)
                 .build();
     }
 
-    private MethodSpec deleteMethod() {
+    private MethodSpec deleteMethod(TypeElement entityClass, ClassName tType) {
+        TypeName entityType = TypeName.get(entityClass.asType());
+        ParameterizedTypeName deleteType = ParameterizedTypeName.get(ClassName.get(Delete.class), entityType);
         return MethodSpec.methodBuilder("delete")
                 .addModifiers(Modifier.PUBLIC)
-                .returns(Delete.class)
-                .addStatement("return new $T()", Delete.class)
+                .returns(deleteType)
+                .addStatement("return new $T($T.Table.tableName)", deleteType, tType)
                 .build();
     }
 }

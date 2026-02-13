@@ -1,5 +1,6 @@
 # OnlySql
-使用JPA设计，
+
+Java ORM项目，使用JPA设计，
 - 生成 QEntity 用于SQL DSL ;
 - 生成 REntity 对应数据库表字段
 - 生成 TEntity 记录表信息： tableName,fields 
@@ -20,7 +21,7 @@ public final class TSysUser{
         public static final String _age = "age";
     }
     // 生成字段信息
-    public final TSuperEntity _super= new TSuperEntity();
+    public final TSuperEntity _super = new TSuperEntity();
 
     public final DateTimePath createTime = _super.createTime;
 
@@ -88,6 +89,8 @@ new QSysUser().delete().where().id(1L).exe();
 new QSysUser().select().where().id(1L).exe();
 
 new QSysUser().select(QSysUser.name,QSysUser.id).where().id(1L).exe();
+
+qSysUser.select().columns("id").where(TSysUser.id.eq(2L).name.eq("admin"))
 
 ~~~
 

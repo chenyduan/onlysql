@@ -26,6 +26,7 @@ public class OnlySqlProcess extends AbstractProcessor {
     QEntityHandler qEntityHandler = new QEntityHandler();
     RecordGenerate recordGenerate = new RecordGenerate();
     TableProcess tableProcess = new TableProcess();
+    TEntityWhereHandler whereHandler = new TEntityWhereHandler();
 
     @Override
     public synchronized void init(ProcessingEnvironment processingEnv) {
@@ -52,6 +53,7 @@ public class OnlySqlProcess extends AbstractProcessor {
                         qEntityHandler.qEntity(typeElement, processingEnv);
                     }
                     recordGenerate.rEntity(typeElement, processingEnv);
+                    whereHandler.generate(typeElement, processingEnv);
                     tableProcess.tableInfo(typeElement, processingEnv);
 //                    generateSpecificationClass((TypeElement) element, processingEnv);
 //                    // ConditionProcessHandler.condition((TypeElement) element,

@@ -1,19 +1,28 @@
 package com.originlang.onlysql;
 
-public class DateTimePath<T> {
+import com.originlang.onlysql.sql.SingleCondition;
+import com.originlang.onlysql.sql.WhereCriteria;
 
-    private String name;
-    private Class<T> type;
+public class DateTimePath<T> implements SqlPath {
 
-    public DateTimePath(String name, Class<T> type) {
-        this.name = name;
+    private final String columnName;
+    private final Class<T> type;
+
+    public DateTimePath(String columnName, Class<T> type) {
+        this.columnName = columnName;
         this.type = type;
     }
 
-    public String getName() {
-        return name;
+    @Override
+    public String getColumnName() {
+        return columnName;
     }
+
     public Class<T> getType() {
         return type;
+    }
+
+    public WhereCriteria eq(Object value) {
+        return new SingleCondition(columnName, value);
     }
 }

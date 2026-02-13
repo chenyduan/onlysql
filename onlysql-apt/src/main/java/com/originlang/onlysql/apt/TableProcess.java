@@ -10,6 +10,9 @@ import com.palantir.javapoet.FieldSpec;
 import com.palantir.javapoet.JavaFile;
 import com.palantir.javapoet.TypeName;
 import com.palantir.javapoet.TypeSpec;
+import com.palantir.javapoet.ParameterizedTypeName;
+
+import jakarta.persistence.Entity;
 
 import javax.annotation.processing.ProcessingEnvironment;
 import javax.lang.model.element.Element;
@@ -29,7 +32,7 @@ import java.util.List;
 import java.util.Map;
 
 /**
- * 生成 TEntity：记录表信息。表名字段放在静态内部类 Table 中；实例部分为 _super 与 Path 字段。
+ * 生成 TEntity：记录表信息。表名字段放在静态内部类 Table 中；Path 字段为静态，便于 TSysUser.id 引用。
  */
 class TableProcess {
 
@@ -57,16 +60,16 @@ class TableProcess {
                 .addFields(tableFields)
                 .build();
 
-        // 字段信息：_super + Path 字段
+        // 字段信息：Path 均为静态，便于 TSysUser.id 引用；继承字段引用父类 T 的静态 Path
         List<FieldSpec> fields = new ArrayList<>();
-        FieldSpec superField = buildTSuperField(entityClass, env);
-        if (superField != null) {
-            fields.add(superField);
-        }
+        String pkg = env.getElementUtils().getPackageOf(entityClass).toString();
+        String tClassName = "T" + entityClass.getSimpleName();
+        ClassName tType = pkg.isEmpty() ? ClassName.bestGuess(tClassName) : ClassName.get(pkg, tClassName);
+        ClassName whereType = pkg.isEmpty() ? ClassName.bestGuess(tClassName + "Where") : ClassName.get(pkg, tClassName + "Where");
         for (FieldEntry entry : fieldEntries) {
             FieldSpec pathField = entry.fromSuper
-                    ? pathFieldFromSuper(entry.element)
-                    : buildPathField(entry.element, env);
+                    ? pathFieldFromSuper(entry.element, env, entityClass, tType, whereType)
+                    : buildPathField(entry.element, env, entityClass, tType, whereType);
             fields.add(pathField);
         }
 
@@ -153,17 +156,6 @@ class TableProcess {
         return list;
     }
 
-    private FieldSpec buildTSuperField(TypeElement entityClass, ProcessingEnvironment env) {
-        TypeElement superElement = getSuperTypeElement(entityClass);
-        if (superElement == null) return null;
-        String tSuperName = "T" + superElement.getSimpleName();
-        String pkg = env.getElementUtils().getPackageOf(superElement).toString();
-        ClassName tSuperClass = pkg.isEmpty() ? ClassName.bestGuess(tSuperName) : ClassName.get(pkg, tSuperName);
-        return FieldSpec.builder(tSuperClass, "_super", Modifier.PUBLIC, Modifier.FINAL)
-                .initializer("new $T()", tSuperClass)
-                .build();
-    }
-
     private TypeElement getSuperTypeElement(TypeElement entityClass) {
         TypeMirror superType = entityClass.getSuperclass();
         if (superType.getKind() != TypeKind.DECLARED) return null;
@@ -171,67 +163,74 @@ class TableProcess {
         return "java.lang.Object".equals(superElement.getQualifiedName().toString()) ? null : superElement;
     }
 
-    private FieldSpec pathFieldFromSuper(Element element) {
-        String fieldName = element.getSimpleName().toString();
-        String typeName = element.asType().toString();
-        TypeName pathType;
-        switch (typeName) {
-            case "java.lang.Long", "long" ->
-                pathType = com.palantir.javapoet.ParameterizedTypeName.get(ClassName.get(NumberPath.class), TypeName.get(element.asType()));
-            case "java.lang.Integer", "int", "java.lang.Short", "short", "java.lang.Byte", "byte" ->
-                pathType = com.palantir.javapoet.ParameterizedTypeName.get(ClassName.get(NumberPath.class), ClassName.get(Integer.class));
-            case "java.util.Date", "java.sql.Date", "java.sql.Timestamp", "java.time.LocalDateTime" ->
-                pathType = ClassName.get(DateTimePath.class);
-            case "java.time.LocalDate" -> pathType = ClassName.get(DatePath.class);
-            case "java.time.LocalTime" -> pathType = ClassName.get(TimePath.class);
-            default -> pathType = ClassName.get(StringPath.class);
+    /** 继承字段：静态 Path。若父类是 @Entity 则引用 TSuper.field；若为 @MappedSuperclass 则用本类 Table 建 Path。 */
+    private FieldSpec pathFieldFromSuper(Element element, ProcessingEnvironment env, TypeElement entityClass, ClassName tType, ClassName whereType) {
+        TypeElement superElement = (TypeElement) element.getEnclosingElement();
+        if (superElement.getAnnotation(Entity.class) != null) {
+            String fieldName = element.getSimpleName().toString();
+            String tSuperName = "T" + superElement.getSimpleName().toString();
+            String pkg = env.getElementUtils().getPackageOf(superElement).toString();
+            ClassName tSuperClass = pkg.isEmpty() ? ClassName.bestGuess(tSuperName) : ClassName.get(pkg, tSuperName);
+            String typeName = element.asType().toString();
+            TypeName pathType;
+            switch (typeName) {
+                case "java.lang.Long", "long" ->
+                    pathType = ParameterizedTypeName.get(ClassName.get(NumberPath.class), TypeName.get(element.asType()));
+                case "java.lang.Integer", "int", "java.lang.Short", "short", "java.lang.Byte", "byte" ->
+                    pathType = ParameterizedTypeName.get(ClassName.get(NumberPath.class), ClassName.get(Integer.class));
+                case "java.util.Date", "java.sql.Date", "java.sql.Timestamp", "java.time.LocalDateTime" ->
+                    pathType = ClassName.get(DateTimePath.class);
+                case "java.time.LocalDate" -> pathType = ClassName.get(DatePath.class);
+                case "java.time.LocalTime" -> pathType = ClassName.get(TimePath.class);
+                default -> pathType = ClassName.get(StringPath.class);
+            }
+            return FieldSpec.builder(pathType, fieldName, Modifier.PUBLIC, Modifier.STATIC, Modifier.FINAL)
+                    .initializer("$T.$L", tSuperClass, fieldName)
+                    .build();
         }
-        return FieldSpec.builder(pathType, fieldName, Modifier.PUBLIC, Modifier.FINAL)
-                .initializer("_super.$L", fieldName)
-                .build();
+        // @MappedSuperclass 无 T 类，用本类 Table 生成静态 Path
+        return buildPathField(element, env, entityClass, tType, whereType);
     }
 
-    private FieldSpec buildPathField(Element element, ProcessingEnvironment env) {
+    private FieldSpec buildPathField(Element element, ProcessingEnvironment env, TypeElement entityClass, ClassName tType, ClassName whereType) {
         String fieldName = element.getSimpleName().toString();
         String typeName = element.asType().toString();
+        // 使用 Table.columnName 作为列名，并传入 Where 类以支持链式 where(TSysUser.id.eq(2L).name.eq("admin"))
         switch (typeName) {
             case "java.lang.Long", "long" -> {
                 return FieldSpec.builder(
-                                com.palantir.javapoet.ParameterizedTypeName.get(ClassName.get(NumberPath.class), TypeName.get(element.asType())),
-                                fieldName, Modifier.PUBLIC, Modifier.FINAL)
-                        .initializer("new $T($S, $T.class)", NumberPath.class, fieldName, element.asType())
+                                ParameterizedTypeName.get(ClassName.get(NumberPath.class), TypeName.get(element.asType())),
+                                fieldName, Modifier.PUBLIC, Modifier.STATIC, Modifier.FINAL)
+                        .initializer("new $T($T.Table.$L, $T.class, $T.class)", NumberPath.class, tType, fieldName, element.asType(), whereType)
                         .build();
             }
-            case "java.lang.Integer", "int", "java.lang.Short", "short", "java.lang.Byte", "byte" ->{
+            case "java.lang.Integer", "int", "java.lang.Short", "short", "java.lang.Byte", "byte" -> {
                 return FieldSpec.builder(
-                                com.palantir.javapoet.ParameterizedTypeName.get(ClassName.get(NumberPath.class), ClassName.get(Integer.class)),
-                                fieldName, Modifier.PUBLIC, Modifier.FINAL)
-                        .initializer("new $T($S, $T.class)", NumberPath.class, fieldName, Integer.class)
+                                ParameterizedTypeName.get(ClassName.get(NumberPath.class), ClassName.get(Integer.class)),
+                                fieldName, Modifier.PUBLIC, Modifier.STATIC, Modifier.FINAL)
+                        .initializer("new $T($T.Table.$L, $T.class, $T.class)", NumberPath.class, tType, fieldName, Integer.class, whereType)
                         .build();
             }
-
-            case "java.util.Date", "java.sql.Date", "java.sql.Timestamp", "java.time.LocalDateTime" ->{
-                return FieldSpec.builder(DateTimePath.class, fieldName, Modifier.PUBLIC, Modifier.FINAL)
-                        .initializer("new $T($S, $T.class)", DateTimePath.class, fieldName, element.asType())
+            case "java.util.Date", "java.sql.Date", "java.sql.Timestamp", "java.time.LocalDateTime" -> {
+                return FieldSpec.builder(DateTimePath.class, fieldName, Modifier.PUBLIC, Modifier.STATIC, Modifier.FINAL)
+                        .initializer("new $T($T.Table.$L, $T.class)", DateTimePath.class, tType, fieldName, element.asType())
                         .build();
             }
-
-            case "java.time.LocalDate" ->{
-                return FieldSpec.builder(DatePath.class, fieldName, Modifier.PUBLIC, Modifier.FINAL)
-                        .initializer("new $T($S, $T.class)", DatePath.class, fieldName, element.asType())
+            case "java.time.LocalDate" -> {
+                return FieldSpec.builder(DatePath.class, fieldName, Modifier.PUBLIC, Modifier.STATIC, Modifier.FINAL)
+                        .initializer("new $T($T.Table.$L, $T.class)", DatePath.class, tType, fieldName, element.asType())
                         .build();
             }
-
-            case "java.time.LocalTime" ->
-            { return FieldSpec.builder(TimePath.class, fieldName, Modifier.PUBLIC, Modifier.FINAL)
-                        .initializer("new $T($S, $T.class)", TimePath.class, fieldName, element.asType())
-                        .build();}
-            default ->{
-                return FieldSpec.builder(StringPath.class, fieldName, Modifier.PUBLIC, Modifier.FINAL)
-                        .initializer("new $T($S)", StringPath.class, fieldName)
+            case "java.time.LocalTime" -> {
+                return FieldSpec.builder(TimePath.class, fieldName, Modifier.PUBLIC, Modifier.STATIC, Modifier.FINAL)
+                        .initializer("new $T($T.Table.$L, $T.class)", TimePath.class, tType, fieldName, element.asType())
                         .build();
             }
-
+            default -> {
+                return FieldSpec.builder(StringPath.class, fieldName, Modifier.PUBLIC, Modifier.STATIC, Modifier.FINAL)
+                        .initializer("new $T($T.Table.$L, $T.class)", StringPath.class, tType, fieldName, whereType)
+                        .build();
+            }
         }
     }
 

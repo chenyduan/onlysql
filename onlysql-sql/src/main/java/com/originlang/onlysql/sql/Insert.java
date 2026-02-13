@@ -10,20 +10,30 @@ import java.util.Map;
  * <p>
  * 用法示例：
  * <ul>
- *   <li>通用：insert().set("id", 1L).set("username", "admin").execute()</li>
- *   <li>若 APT 生成带 fluent 方法的子类/包装：insert().id(1L).username("admin").execute()</li>
- *   <li>批量：insert().batch(listOfRecords)</li>
+ *   <li>单条：insert().set("id", 1L).set("username", "admin").execute()</li>
+ *   <li>批量：insert().batch(listOfRows).execute()，每行一个 Map（列名 -> 值）</li>
  * </ul>
  *
- * @param <T> 实体类型，用于 batch(List&lt;T&gt;) 等
+ * @param <T> 实体类型，预留
  */
 public class Insert<T> {
 
     private final String table;
     private final Map<String, Object> values = new LinkedHashMap<>();
+    private List<Map<String, Object>> batchRows;
+    /** 主键列名；未 set 该列时执行器请求生成键，execute() 返回生成的主键。 */
+    private String generatedKeyColumn;
 
     public Insert(String table) {
         this.table = table;
+    }
+
+    /**
+     * 指定主键列（自增/序列）。未对该列 set 时，execute() 返回生成的主键；否则返回影响行数。
+     */
+    public Insert<T> generatedKeyColumn(String column) {
+        this.generatedKeyColumn = column;
+        return this;
     }
 
     /**
@@ -37,11 +47,27 @@ public class Insert<T> {
     }
 
     /**
-     * 使用当前上下文中的 {@link DmlExecutor} 执行 INSERT。
-     * 需先通过 {@link ExecutorContext#setExecutor(DmlExecutor)} 设置执行器（如 onlysql-jdbc 的 JdbcDmlExecutor）。
+     * 批量插入：多行同表、同列结构。执行时使用 JDBC addBatch/executeBatch。
      *
-     * @return 影响行数或生成的主键（由执行器实现决定）
-     * @throws IllegalStateException 未设置执行器时
+     * @param rows 多行数据，每行一个 Map（列名 -> 值）；列以第一行的 key 为准
+     * @return this
+     */
+    public Insert<T> batch(List<Map<String, Object>> rows) {
+        if (rows != null && !rows.isEmpty()) {
+            this.batchRows = new ArrayList<>(rows.size());
+            for (Map<String, Object> row : rows) {
+                this.batchRows.add(row == null ? new LinkedHashMap<>() : new LinkedHashMap<>(row));
+            }
+        } else {
+            this.batchRows = null;
+        }
+        return this;
+    }
+
+    /**
+     * 使用当前上下文中的 {@link DmlExecutor} 执行 INSERT。
+     *
+     * @return 单条且设置了 {@link #generatedKeyColumn} 且未提供主键时返回生成的主键，否则返回影响行数；批量恒返回影响行数
      */
     public long execute() {
         DmlExecutor executor = ExecutorContext.getExecutor();
@@ -61,19 +87,23 @@ public class Insert<T> {
         return executor.executeInsert(this);
     }
 
-    /**
-     * 批量插入：多行同表插入。
-     */
-    public Insert<T> batch(List<T> rows) {
-        // TODO: 根据 T 与 R 实体或反射取字段，生成批量 INSERT
-        return this;
-    }
-
     public String getTable() {
         return table;
     }
 
     public Map<String, Object> getValues() {
         return new LinkedHashMap<>(values);
+    }
+
+    /**
+     * 批量行数据；非空时执行器将走批量 INSERT（addBatch/executeBatch）。
+     */
+    public List<Map<String, Object>> getBatchRows() {
+        return batchRows == null ? null : new ArrayList<>(batchRows);
+    }
+
+    /** 主键列名，用于请求生成键并作为返回值。 */
+    public String getGeneratedKeyColumn() {
+        return generatedKeyColumn;
     }
 }
